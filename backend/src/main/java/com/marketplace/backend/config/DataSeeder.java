@@ -8,6 +8,8 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 @Component
 @org.springframework.context.annotation.Profile("!test")
 public class DataSeeder implements CommandLineRunner {
@@ -15,10 +17,10 @@ public class DataSeeder implements CommandLineRunner {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
-    @Value("${admin.seed.name:Marketplace Admin}")
+    @Value("${admin.seed.name:Adarsh Srikumar}")
     private String adminName;
 
-    @Value("${admin.seed.email:admin@marketplace.com}")
+    @Value("${admin.seed.email:adarshsrikumar28@gmail.com}")
     private String adminEmail;
 
     @Value("${admin.seed.password:admin123}")
@@ -31,18 +33,35 @@ public class DataSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        boolean adminExists = userRepository.findAll().stream()
-                .anyMatch(user -> user.getRole() == UserRole.ADMIN);
+        String normalizedEmail = adminEmail.toLowerCase().trim();
 
-        if (!adminExists) {
+        // Find all users with this email
+        List<User> existingUsers = userRepository.findAll().stream()
+                .filter(u -> u.getEmail().equalsIgnoreCase(normalizedEmail))
+                .toList();
+
+        if (!existingUsers.isEmpty()) {
+            // Promote existing user(s) to ADMIN
+            existingUsers.forEach(u -> {
+                if (u.getRole() != UserRole.ADMIN) {
+                    u.setRole(UserRole.ADMIN);
+                    userRepository.save(u);
+                    System.out.println("[DataSeeder] Promoted existing user to ADMIN: " + normalizedEmail);
+                } else {
+                    System.out.println("[DataSeeder] Admin already exists: " + normalizedEmail);
+                }
+            });
+        } else {
+            // Create new admin user
             User admin = new User(
                     adminName,
-                    adminEmail.toLowerCase(),
+                    normalizedEmail,
                     passwordEncoder.encode(adminPassword),
                     null,
                     UserRole.ADMIN
             );
             userRepository.save(admin);
+            System.out.println("[DataSeeder] Created new ADMIN user: " + normalizedEmail);
         }
     }
 }
