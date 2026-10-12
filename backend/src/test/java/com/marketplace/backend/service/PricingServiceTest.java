@@ -71,7 +71,7 @@ class PricingServiceTest {
     }
 
     @Test
-    void shouldCalculateSameDayPriceQuoteWithMultiplier() {
+    void shouldCalculateSameDayPriceQuoteWithSimplePrice() {
         LocalDateTime futureTime = LocalDateTime.now().plusHours(4);
         PricingQuoteRequest request = new PricingQuoteRequest(100L, futureTime, UrgencyLevel.SAME_DAY);
 
@@ -82,12 +82,12 @@ class PricingServiceTest {
         assertNotNull(response);
         assertNotNull(response.quoteId());
         assertEquals(new BigDecimal("500.00"), response.basePrice());
-        assertEquals(new BigDecimal("1.25"), response.urgencyMultiplier());
-        assertEquals(new BigDecimal("625.00"), response.finalPrice());
+        assertEquals(new BigDecimal("1.00"), response.urgencyMultiplier());
+        assertEquals(new BigDecimal("500.00"), response.finalPrice());
     }
 
     @Test
-    void shouldCalculateEmergencyPriceQuoteWithMultiplier() {
+    void shouldCalculateEmergencyPriceQuoteWithSimplePrice() {
         LocalDateTime futureTime = LocalDateTime.now().plusHours(1);
         PricingQuoteRequest request = new PricingQuoteRequest(100L, futureTime, UrgencyLevel.EMERGENCY);
 
@@ -98,8 +98,8 @@ class PricingServiceTest {
         assertNotNull(response);
         assertNotNull(response.quoteId());
         assertEquals(new BigDecimal("500.00"), response.basePrice());
-        assertEquals(new BigDecimal("1.50"), response.urgencyMultiplier());
-        assertEquals(new BigDecimal("750.00"), response.finalPrice());
+        assertEquals(new BigDecimal("1.00"), response.urgencyMultiplier());
+        assertEquals(new BigDecimal("500.00"), response.finalPrice());
     }
 
     @Test

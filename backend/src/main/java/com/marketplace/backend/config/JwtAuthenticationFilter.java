@@ -1,5 +1,6 @@
 package com.marketplace.backend.config;
 
+import com.marketplace.backend.entity.User;
 import com.marketplace.backend.repository.UserRepository;
 import com.marketplace.backend.service.JwtService;
 import jakarta.servlet.FilterChain;
@@ -49,8 +50,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         String email = jwtService.extractSubject(token);
-        if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            userRepository.findByEmail(email).ifPresentOrElse(user -> {
+        String roleClaim = null;
+        var claims = jwtService.extractAllClaims(token);
+        if (claims != null && claims.get("role") != null) {
+            roleClaim = claims.get("role").toString();
+        }
+
+        if (email != null && !email.isBlank() && SecurityContextHolder.getContext().getAuthentication() == null) {
+            String finalRoleClaim = roleClaim;
+            User user = userRepository.findAllByEmail(email).stream()
+                    .filter(u -> finalRoleClaim == null || u.getRole().name().equalsIgnoreCase(finalRoleClaim))
+                    .findFirst()
+                    .orElse(null);
+            if (user != null) {
                 SimpleGrantedAuthority authority = new SimpleGrantedAuthority("ROLE_" + user.getRole().name());
                 UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                         user,
@@ -59,9 +71,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 );
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
-            }, () -> {
+            } else {
                 SecurityContextHolder.clearContext();
-            });
+            }
         }
 
         filterChain.doFilter(request, response);

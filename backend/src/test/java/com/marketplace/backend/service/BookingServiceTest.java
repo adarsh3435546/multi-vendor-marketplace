@@ -2,6 +2,7 @@ package com.marketplace.backend.service;
 
 import com.marketplace.backend.dto.booking.BookingResponse;
 import com.marketplace.backend.dto.booking.CreateBookingRequest;
+import com.marketplace.backend.dto.booking.OtpResponse;
 import com.marketplace.backend.dto.pricing.StoredQuote;
 import com.marketplace.backend.entity.Booking;
 import com.marketplace.backend.entity.Service;
@@ -103,7 +104,7 @@ class BookingServiceTest {
     void shouldCreateBookingWithValidQuote() {
         CreateBookingRequest request = new CreateBookingRequest(quoteId);
 
-        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(customer));
+        when(userRepository.findByEmailAndRole("alice@example.com", UserRole.CUSTOMER)).thenReturn(Optional.of(customer));
         when(pricingService.consumeQuote(quoteId, "alice@example.com")).thenReturn(storedQuote);
         when(serviceRepository.findByIdAndActiveTrue(100L)).thenReturn(Optional.of(service));
         when(vendorRepository.findByIdAndAvailableTrue(10L)).thenReturn(Optional.of(vendor));
@@ -128,7 +129,7 @@ class BookingServiceTest {
     void shouldRejectBookingWhenQuoteIsInvalidOrExpired() {
         CreateBookingRequest request = new CreateBookingRequest(quoteId);
 
-        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(customer));
+        when(userRepository.findByEmailAndRole("alice@example.com", UserRole.CUSTOMER)).thenReturn(Optional.of(customer));
         when(pricingService.consumeQuote(quoteId, "alice@example.com"))
                 .thenThrow(new IllegalArgumentException("Quote has expired."));
 
@@ -140,7 +141,7 @@ class BookingServiceTest {
     void shouldRejectBookingWhenServiceIsNoLongerActive() {
         CreateBookingRequest request = new CreateBookingRequest(quoteId);
 
-        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(customer));
+        when(userRepository.findByEmailAndRole("alice@example.com", UserRole.CUSTOMER)).thenReturn(Optional.of(customer));
         when(pricingService.consumeQuote(quoteId, "alice@example.com")).thenReturn(storedQuote);
         when(serviceRepository.findByIdAndActiveTrue(100L)).thenReturn(Optional.empty());
 
@@ -152,12 +153,108 @@ class BookingServiceTest {
     void shouldRejectBookingWhenVendorIsNoLongerAvailable() {
         CreateBookingRequest request = new CreateBookingRequest(quoteId);
 
-        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(customer));
+        when(userRepository.findByEmailAndRole("alice@example.com", UserRole.CUSTOMER)).thenReturn(Optional.of(customer));
         when(pricingService.consumeQuote(quoteId, "alice@example.com")).thenReturn(storedQuote);
         when(serviceRepository.findByIdAndActiveTrue(100L)).thenReturn(Optional.of(service));
         when(vendorRepository.findByIdAndAvailableTrue(10L)).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class, () -> bookingService.createBooking(request, customerAuth));
         verify(bookingRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldGetMyBookings() {
+        Booking booking = new Booking(customer, vendor, service, LocalDateTime.now().plusDays(1), new BigDecimal("500.00"), new BigDecimal("500.00"));
+        booking.setId(101L);
+
+        when(userRepository.findByEmailAndRole("alice@example.com", UserRole.CUSTOMER)).thenReturn(Optional.of(customer));
+        when(bookingRepository.findByCustomerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(booking));
+
+        List<BookingResponse> responses = bookingService.getMyBookings(customerAuth);
+
+        assertEquals(1, responses.size());
+        assertEquals(101L, responses.getFirst().id());
+    }
+
+    @Test
+    void shouldConfirmBookingAndGenerateOtp() {
+        Authentication vendorAuth = new UsernamePasswordAuthenticationToken(vendor.getUser(), null, List.of());
+        Booking booking = new Booking(customer, vendor, service, LocalDateTime.now().plusDays(1), new BigDecimal("500.00"), new BigDecimal("500.00"));
+        booking.setId(201L);
+        booking.setStatus(BookingStatus.PENDING);
+
+        when(vendorRepository.findByUserEmail("bob@example.com")).thenReturn(Optional.of(vendor));
+        when(bookingRepository.findById(201L)).thenReturn(Optional.of(booking));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        BookingResponse response = bookingService.confirmBooking(201L, vendorAuth);
+
+        assertNotNull(response);
+        assertEquals(BookingStatus.CONFIRMED, response.status());
+        assertNotNull(booking.getCompletionOtpHash());
+    }
+
+    @Test
+    void shouldCompleteBookingWithValidOtp() {
+        Authentication vendorAuth = new UsernamePasswordAuthenticationToken(vendor.getUser(), null, List.of());
+        Booking booking = new Booking(customer, vendor, service, LocalDateTime.now().plusDays(1), new BigDecimal("500.00"), new BigDecimal("500.00"));
+        booking.setId(201L);
+        booking.setStatus(BookingStatus.PENDING);
+
+        when(vendorRepository.findByUserEmail("bob@example.com")).thenReturn(Optional.of(vendor));
+        when(bookingRepository.findById(201L)).thenReturn(Optional.of(booking));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Confirm to set up OTP
+        bookingService.confirmBooking(201L, vendorAuth);
+
+        // Get OTP as customer
+        when(userRepository.findByEmailAndRole("alice@example.com", UserRole.CUSTOMER)).thenReturn(Optional.of(customer));
+        OtpResponse otpResponse = bookingService.getBookingOtp(201L, customerAuth);
+        assertNotNull(otpResponse.otp());
+
+        // Complete as vendor
+        BookingResponse completed = bookingService.completeBooking(201L, otpResponse.otp(), vendorAuth);
+        assertEquals(BookingStatus.COMPLETED, completed.status());
+    }
+
+    @Test
+    void shouldRejectCompleteBookingWithInvalidOtp() {
+        Authentication vendorAuth = new UsernamePasswordAuthenticationToken(vendor.getUser(), null, List.of());
+        Booking booking = new Booking(customer, vendor, service, LocalDateTime.now().plusDays(1), new BigDecimal("500.00"), new BigDecimal("500.00"));
+        booking.setId(201L);
+        booking.setStatus(BookingStatus.PENDING);
+
+        when(vendorRepository.findByUserEmail("bob@example.com")).thenReturn(Optional.of(vendor));
+        when(bookingRepository.findById(201L)).thenReturn(Optional.of(booking));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        bookingService.confirmBooking(201L, vendorAuth);
+
+        assertThrows(IllegalArgumentException.class, () -> bookingService.completeBooking(201L, "999999", vendorAuth));
+    }
+
+    @Test
+    void shouldCancelBookingSuccessfully() {
+        Booking booking = new Booking(customer, vendor, service, LocalDateTime.now().plusDays(1), new BigDecimal("500.00"), new BigDecimal("500.00"));
+        booking.setId(201L);
+        booking.setStatus(BookingStatus.PENDING);
+
+        when(bookingRepository.findById(201L)).thenReturn(Optional.of(booking));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        BookingResponse response = bookingService.cancelBooking(201L, customerAuth);
+        assertEquals(BookingStatus.CANCELLED, response.status());
+    }
+
+    @Test
+    void shouldNotAllowCancellingCompletedBooking() {
+        Booking booking = new Booking(customer, vendor, service, LocalDateTime.now().plusDays(1), new BigDecimal("500.00"), new BigDecimal("500.00"));
+        booking.setId(201L);
+        booking.setStatus(BookingStatus.COMPLETED);
+
+        when(bookingRepository.findById(201L)).thenReturn(Optional.of(booking));
+
+        assertThrows(IllegalStateException.class, () -> bookingService.cancelBooking(201L, customerAuth));
     }
 }

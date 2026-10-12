@@ -28,7 +28,11 @@ public class PricingController {
             @Valid @RequestBody PricingQuoteRequest request,
             Authentication authentication
     ) {
-        String customerEmail = authentication != null ? authentication.getName() : null;
+        String customerEmail = authentication != null
+                ? (authentication.getPrincipal() instanceof com.marketplace.backend.entity.User user
+                    ? user.getEmail()
+                    : authentication.getName())
+                : null;
         PricingQuoteResponse response = pricingService.calculateQuote(request, customerEmail);
         return ResponseEntity.ok(response);
     }

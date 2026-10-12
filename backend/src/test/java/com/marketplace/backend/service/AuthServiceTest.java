@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -53,7 +54,7 @@ class AuthServiceTest {
     @Test
     void shouldRegisterCustomerSuccessfully() {
         RegisterRequest request = new RegisterRequest("John Doe", "john@example.com", "plainPass", "1234567890", UserRole.CUSTOMER);
-        when(userRepository.existsByEmail("john@example.com")).thenReturn(false);
+        when(userRepository.existsByEmailAndRole("john@example.com", UserRole.CUSTOMER)).thenReturn(false);
         when(passwordEncoder.encode("plainPass")).thenReturn("encodedPassword123");
         when(userRepository.save(any(User.class))).thenReturn(sampleUser);
 
@@ -74,7 +75,7 @@ class AuthServiceTest {
         vendorUser.setId(20L);
         RegisterRequest request = new RegisterRequest("Vendor Shop", "vendor@example.com", "plainPass", "1234567890", UserRole.VENDOR);
 
-        when(userRepository.existsByEmail("vendor@example.com")).thenReturn(false);
+        when(userRepository.existsByEmailAndRole("vendor@example.com", UserRole.VENDOR)).thenReturn(false);
         when(passwordEncoder.encode("plainPass")).thenReturn("encodedPass");
         when(userRepository.save(any(User.class))).thenReturn(vendorUser);
 
@@ -95,15 +96,15 @@ class AuthServiceTest {
     @Test
     void shouldRejectDuplicateEmailRegistration() {
         RegisterRequest request = new RegisterRequest("John Doe", "john@example.com", "plainPass", "1234567890", UserRole.CUSTOMER);
-        when(userRepository.existsByEmail("john@example.com")).thenReturn(true);
+        when(userRepository.existsByEmailAndRole("john@example.com", UserRole.CUSTOMER)).thenReturn(true);
 
         assertThrows(DuplicateEmailException.class, () -> authService.register(request));
     }
 
     @Test
     void shouldLoginSuccessfullyWithValidCredentials() {
-        LoginRequest request = new LoginRequest("john@example.com", "correctPassword");
-        when(userRepository.findByEmail("john@example.com")).thenReturn(Optional.of(sampleUser));
+        LoginRequest request = new LoginRequest("john@example.com", "correctPassword", null);
+        when(userRepository.findAllByEmail("john@example.com")).thenReturn(List.of(sampleUser));
         when(passwordEncoder.matches("correctPassword", "encodedPassword123")).thenReturn(true);
         when(jwtService.generateToken("john@example.com", 10L, "CUSTOMER")).thenReturn("mock-jwt-token");
 
@@ -119,16 +120,16 @@ class AuthServiceTest {
 
     @Test
     void shouldThrowInvalidCredentialsExceptionWhenUserNotFound() {
-        LoginRequest request = new LoginRequest("unknown@example.com", "password");
-        when(userRepository.findByEmail("unknown@example.com")).thenReturn(Optional.empty());
+        LoginRequest request = new LoginRequest("unknown@example.com", "password", null);
+        when(userRepository.findAllByEmail("unknown@example.com")).thenReturn(List.of());
 
         assertThrows(InvalidCredentialsException.class, () -> authService.login(request));
     }
 
     @Test
     void shouldThrowInvalidCredentialsExceptionWhenPasswordMismatch() {
-        LoginRequest request = new LoginRequest("john@example.com", "wrongPassword");
-        when(userRepository.findByEmail("john@example.com")).thenReturn(Optional.of(sampleUser));
+        LoginRequest request = new LoginRequest("john@example.com", "wrongPassword", null);
+        when(userRepository.findAllByEmail("john@example.com")).thenReturn(List.of(sampleUser));
         when(passwordEncoder.matches("wrongPassword", "encodedPassword123")).thenReturn(false);
 
         assertThrows(InvalidCredentialsException.class, () -> authService.login(request));

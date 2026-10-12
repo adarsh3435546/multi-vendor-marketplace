@@ -7,6 +7,7 @@ import com.marketplace.backend.entity.Service;
 import com.marketplace.backend.entity.User;
 import com.marketplace.backend.entity.Vendor;
 import com.marketplace.backend.exception.ResourceNotFoundException;
+import com.marketplace.backend.repository.BookingRepository;
 import com.marketplace.backend.repository.ServiceRepository;
 import com.marketplace.backend.repository.VendorRepository;
 import org.springframework.security.access.AccessDeniedException;
@@ -20,10 +21,12 @@ public class ServiceCatalogService {
 
     private final ServiceRepository serviceRepository;
     private final VendorRepository vendorRepository;
+    private final BookingRepository bookingRepository;
 
-    public ServiceCatalogService(ServiceRepository serviceRepository, VendorRepository vendorRepository) {
+    public ServiceCatalogService(ServiceRepository serviceRepository, VendorRepository vendorRepository, BookingRepository bookingRepository) {
         this.serviceRepository = serviceRepository;
         this.vendorRepository = vendorRepository;
+        this.bookingRepository = bookingRepository;
     }
 
     public Vendor resolveVendor(Authentication authentication) {
@@ -93,8 +96,11 @@ public class ServiceCatalogService {
             service.setDescription(request.description().trim());
         }
         service.setBasePrice(request.basePrice());
-        if (request.active() != null) {
-            service.setActive(request.active());
+        if (request.active() != null && !request.active()) {
+            assertNoActiveBookings(service.getId());
+            service.setActive(false);
+        } else if (request.active() != null) {
+            service.setActive(true);
         }
 
         Service updated = serviceRepository.save(service);
@@ -112,8 +118,19 @@ public class ServiceCatalogService {
             throw new AccessDeniedException("You do not have permission to modify this service.");
         }
 
+        assertNoActiveBookings(service.getId());
+
         service.setActive(false);
         Service updated = serviceRepository.save(service);
         return ServiceResponse.fromEntity(updated);
+    }
+
+    private void assertNoActiveBookings(Long serviceId) {
+        long inUse = bookingRepository.countByServiceIdAndStatusIn(
+                serviceId,
+                java.util.List.of(com.marketplace.backend.enums.BookingStatus.PENDING, com.marketplace.backend.enums.BookingStatus.CONFIRMED));
+        if (inUse > 0) {
+            throw new IllegalStateException("This service cannot be removed because it is currently booked by a customer.");
+        }
     }
 }

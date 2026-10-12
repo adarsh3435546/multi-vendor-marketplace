@@ -19,6 +19,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -86,7 +87,7 @@ class JwtAuthenticationFilterTest {
 
         assertNull(SecurityContextHolder.getContext().getAuthentication());
         verify(filterChain, times(1)).doFilter(request, response);
-        verify(userRepository, never()).findByEmail(any());
+        verify(userRepository, never()).findAllByEmail(any());
     }
 
     @Test
@@ -98,7 +99,7 @@ class JwtAuthenticationFilterTest {
         when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
         when(jwtService.validateToken(token)).thenReturn(true);
         when(jwtService.extractSubject(token)).thenReturn("alice@example.com");
-        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user));
+        when(userRepository.findAllByEmail("alice@example.com")).thenReturn(List.of(user));
 
         jwtAuthenticationFilter.doFilterInternal(request, response, filterChain);
 

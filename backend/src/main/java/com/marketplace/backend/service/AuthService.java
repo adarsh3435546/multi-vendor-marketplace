@@ -43,8 +43,8 @@ public class AuthService {
             throw new IllegalArgumentException("Email cannot be empty.");
         }
 
-        if (userRepository.existsByEmail(normalizedEmail)) {
-            throw new DuplicateEmailException("Email is already registered: " + normalizedEmail);
+        if (userRepository.existsByEmailAndRole(normalizedEmail, request.role())) {
+            throw new DuplicateEmailException("Email is already registered for " + request.role() + " role: " + normalizedEmail);
         }
 
         String trimmedName = request.name() != null ? request.name().trim() : null;
@@ -54,6 +54,20 @@ public class AuthService {
 
         String encodedPassword = passwordEncoder.encode(request.password());
         String phone = request.phone() != null ? request.phone().trim() : null;
+        if (phone != null && phone.isBlank()) {
+            phone = null;
+        }
+
+        if (phone != null) {
+            if (userRepository.existsByPhoneAndRole(phone, request.role())) {
+                throw new DuplicateEmailException("Phone number is already registered for " + request.role() + " role.");
+            }
+            boolean phoneLinkedToDifferentEmail = userRepository.findAllByPhone(phone).stream()
+                    .anyMatch(u -> !u.getEmail().equalsIgnoreCase(normalizedEmail));
+            if (phoneLinkedToDifferentEmail) {
+                throw new DuplicateEmailException("Phone number is already linked to a different account.");
+            }
+        }
 
         User user = new User(trimmedName, normalizedEmail, encodedPassword, phone, request.role());
         User savedUser = userRepository.save(user);
@@ -76,13 +90,25 @@ public class AuthService {
     public AuthResponse login(LoginRequest request) {
         String normalizedEmail = request.email() != null ? request.email().trim().toLowerCase() : "";
 
-        User user = userRepository.findByEmail(normalizedEmail)
-                .orElseThrow(() -> new InvalidCredentialsException("Invalid email or password."));
-
-        if (!passwordEncoder.matches(request.password(), user.getPassword())) {
-            throw new InvalidCredentialsException("Invalid email or password.");
+        java.util.List<User> candidates = userRepository.findAllByEmail(normalizedEmail);
+        if (request.role() != null) {
+            candidates = candidates.stream()
+                    .filter(u -> u.getRole() == request.role())
+                    .toList();
         }
 
+        java.util.List<User> passwordMatches = candidates.stream()
+                .filter(u -> passwordEncoder.matches(request.password(), u.getPassword()))
+                .toList();
+
+        if (passwordMatches.isEmpty()) {
+            throw new InvalidCredentialsException("Invalid email or password.");
+        }
+        if (passwordMatches.size() > 1) {
+            throw new InvalidCredentialsException("This email is linked to multiple accounts. Please specify a role (CUSTOMER or VENDOR) to sign in.");
+        }
+
+        User user = passwordMatches.get(0);
         String token = jwtService.generateToken(user.getEmail(), user.getId(), user.getRole().name());
 
         return new AuthResponse(

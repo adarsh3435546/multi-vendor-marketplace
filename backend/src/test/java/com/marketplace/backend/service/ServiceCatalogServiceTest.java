@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -36,6 +36,9 @@ class ServiceCatalogServiceTest {
 
     @Mock
     private VendorRepository vendorRepository;
+
+    @Mock
+    private com.marketplace.backend.repository.BookingRepository bookingRepository;
 
     @InjectMocks
     private ServiceCatalogService serviceCatalogService;
@@ -158,6 +161,7 @@ class ServiceCatalogServiceTest {
     void shouldDeactivateServiceWhenOwnedByVendor() {
         when(vendorRepository.findByUserEmail("vendor1@example.com")).thenReturn(Optional.of(vendor));
         when(serviceRepository.findById(100L)).thenReturn(Optional.of(service));
+        when(bookingRepository.countByServiceIdAndStatusIn(anyLong(), anyList())).thenReturn(0L);
         when(serviceRepository.save(any(Service.class))).thenReturn(service);
 
         ServiceResponse response = serviceCatalogService.deactivateService(100L, vendorAuth);
@@ -165,5 +169,17 @@ class ServiceCatalogServiceTest {
         assertNotNull(response);
         assertFalse(service.getActive());
         verify(serviceRepository, times(1)).save(service);
+    }
+
+    @Test
+    void shouldBlockDeactivationWhenServiceHasActiveBookings() {
+        when(vendorRepository.findByUserEmail("vendor1@example.com")).thenReturn(Optional.of(vendor));
+        when(serviceRepository.findById(100L)).thenReturn(Optional.of(service));
+        when(bookingRepository.countByServiceIdAndStatusIn(anyLong(), anyList())).thenReturn(2L);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> serviceCatalogService.deactivateService(100L, vendorAuth));
+        assertTrue(ex.getMessage().contains("currently booked"));
+        verify(serviceRepository, never()).save(any(Service.class));
     }
 }

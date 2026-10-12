@@ -7,6 +7,7 @@ import com.marketplace.backend.entity.Service;
 import com.marketplace.backend.entity.Vendor;
 import com.marketplace.backend.enums.UrgencyLevel;
 import com.marketplace.backend.exception.ResourceNotFoundException;
+import com.marketplace.backend.repository.BookingRepository;
 import com.marketplace.backend.repository.ServiceRepository;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,10 +28,18 @@ public class PricingService {
     public static final int QUOTE_VALIDITY_MINUTES = 15;
 
     private final ServiceRepository serviceRepository;
+    private final BookingRepository bookingRepository;
     private final ConcurrentMap<UUID, StoredQuote> quoteStore = new ConcurrentHashMap<>();
 
     public PricingService(ServiceRepository serviceRepository) {
         this.serviceRepository = serviceRepository;
+        this.bookingRepository = null;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PricingService(ServiceRepository serviceRepository, BookingRepository bookingRepository) {
+        this.serviceRepository = serviceRepository;
+        this.bookingRepository = bookingRepository;
     }
 
     @Transactional(readOnly = true)
@@ -49,14 +58,11 @@ public class PricingService {
         }
 
         BigDecimal basePrice = service.getBasePrice();
-        BigDecimal demandMultiplier = NEUTRAL_DEMAND_MULTIPLIER;
+        BigDecimal demandMultiplier = NEUTRAL_DEMAND_MULTIPLIER; // 1.00 - Simple flat pricing
         UrgencyLevel urgency = request.urgency() != null ? request.urgency() : UrgencyLevel.STANDARD;
-        BigDecimal urgencyMultiplier = urgency.getMultiplier();
+        BigDecimal urgencyMultiplier = new BigDecimal("1.00"); // Simple pricing without dynamic surcharge
 
-        BigDecimal finalPrice = basePrice
-                .multiply(demandMultiplier)
-                .multiply(urgencyMultiplier)
-                .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal finalPrice = basePrice.setScale(2, RoundingMode.HALF_UP);
 
         LocalDateTime quotedAt = LocalDateTime.now();
         LocalDateTime expiresAt = quotedAt.plusMinutes(QUOTE_VALIDITY_MINUTES);
@@ -123,5 +129,25 @@ public class PricingService {
         }
 
         return quote;
+    }
+
+    private BigDecimal calculateDemandMultiplier(Long serviceId) {
+        if (bookingRepository == null || serviceId == null) {
+            return NEUTRAL_DEMAND_MULTIPLIER;
+        }
+        try {
+            long activeBookingsCount = bookingRepository.countByServiceIdAndStatusNot(
+                    serviceId,
+                    com.marketplace.backend.enums.BookingStatus.CANCELLED
+            );
+            if (activeBookingsCount >= 5) {
+                return new BigDecimal("1.30");
+            } else if (activeBookingsCount >= 3) {
+                return new BigDecimal("1.15");
+            }
+        } catch (Exception ignored) {
+            // Fallback safely to neutral multiplier
+        }
+        return NEUTRAL_DEMAND_MULTIPLIER;
     }
 }
